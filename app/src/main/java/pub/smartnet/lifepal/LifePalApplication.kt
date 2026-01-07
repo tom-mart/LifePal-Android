@@ -2,8 +2,6 @@ package pub.smartnet.lifepal
 
 import android.app.Application
 import android.util.Log
-import androidx.work.*
-import java.util.concurrent.TimeUnit
 
 class LifePalApplication : Application() {
 

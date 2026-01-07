@@ -20,6 +20,7 @@ import pub.smartnet.lifepal.data.*
 import pub.smartnet.lifepal.data.remote.*
 import java.util.concurrent.TimeUnit
 
+@Suppress("StaticFieldLeak") // Context is application context, not activity
 class MainViewModel(
     private val context: Context,
     val healthConnectManager: HealthConnectManager,
@@ -228,7 +229,7 @@ class MainViewModel(
         }
     }
 
-    fun onHealthPermissionsResult(grantedPermissions: Set<String>) {
+    fun onHealthPermissionsResult(@Suppress("UNUSED_PARAMETER") grantedPermissions: Set<String>) {
         viewModelScope.launch {
             if (healthConnectManager.hasAllPermissions()) {
                 _eventFlow.emit(UIEvent.ShowToast("Health permissions granted"))
@@ -283,35 +284,6 @@ class MainViewModel(
             } else {
                 _eventFlow.emit(UIEvent.ShowToast("Usage stats permission not granted."))
             }
-        }
-    }
-
-    private fun scheduleContextualDataWorker() {
-        viewModelScope.launch {
-            _eventFlow.emit(UIEvent.ShowToast("Contextual data sync enabled."))
-            
-            val constraints = Constraints.Builder()
-                .build()
-            
-            val workRequest = PeriodicWorkRequestBuilder<ContextualDataWorker>(
-                repeatInterval = 15,
-                repeatIntervalTimeUnit = TimeUnit.MINUTES,
-                flexTimeInterval = 5,
-                flexTimeIntervalUnit = TimeUnit.MINUTES
-            )
-                .setConstraints(constraints)
-                .setBackoffCriteria(
-                    BackoffPolicy.LINEAR,
-                    WorkRequest.MIN_BACKOFF_MILLIS,
-                    TimeUnit.MILLISECONDS
-                )
-                .build()
-            
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                "contextualDataSync",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                workRequest
-            )
         }
     }
 

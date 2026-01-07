@@ -31,17 +31,8 @@ class LifePalForegroundService : Service() {
             }
             
             val intent = Intent(context, LifePalForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(intent)
             Log.d("LifePalForegroundService", "Service start requested")
-        }
-
-        fun stopService(context: Context) {
-            val intent = Intent(context, LifePalForegroundService::class.java)
-            context.stopService(intent)
         }
     }
 
@@ -71,27 +62,25 @@ class LifePalForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
-            // Delete old channel if it exists to force recreation with new settings
-            notificationManager.deleteNotificationChannel(CHANNEL_ID)
-            
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW // LOW = minimal notification, won't make sound
-            ).apply {
-                description = "LifePal syncs health data every 15 minutes"
-                setShowBadge(false)
-                enableVibration(false)
-                setSound(null, null)
-                enableLights(false)
-                lockscreenVisibility = Notification.VISIBILITY_SECRET // Hide on lock screen
-            }
-            
-            notificationManager.createNotificationChannel(channel)
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        
+        // Delete old channel if it exists to force recreation with new settings
+        notificationManager.deleteNotificationChannel(CHANNEL_ID)
+        
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW // LOW = minimal notification, won't make sound
+        ).apply {
+            description = "LifePal syncs health data every 15 minutes"
+            setShowBadge(false)
+            enableVibration(false)
+            setSound(null, null)
+            enableLights(false)
+            lockscreenVisibility = Notification.VISIBILITY_SECRET // Hide on lock screen
         }
+        
+        notificationManager.createNotificationChannel(channel)
     }
 
     private fun createNotification(): Notification {
