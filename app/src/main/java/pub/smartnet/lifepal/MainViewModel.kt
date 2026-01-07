@@ -237,37 +237,6 @@ class MainViewModel(
         }
     }
 
-    private fun scheduleHealthDataWorker() {
-        viewModelScope.launch {
-            Log.d("MainViewModel", "scheduleHealthDataWorker called")
-            _eventFlow.emit(UIEvent.ShowToast("Health data sync is active."))
-
-            val constraints = Constraints.Builder()
-                .build()
-
-            val workRequest = PeriodicWorkRequestBuilder<HealthDataWorker>(
-                repeatInterval = 15,
-                repeatIntervalTimeUnit = TimeUnit.MINUTES,
-                flexTimeInterval = 5,
-                flexTimeIntervalUnit = TimeUnit.MINUTES
-            )
-                .setConstraints(constraints)
-                .setBackoffCriteria(
-                    BackoffPolicy.LINEAR,
-                    WorkRequest.MIN_BACKOFF_MILLIS,
-                    TimeUnit.MILLISECONDS
-                )
-                .build()
-
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                "healthDataSync",
-                ExistingPeriodicWorkPolicy.UPDATE,
-                workRequest
-            )
-            Log.d("MainViewModel", "Health data worker scheduled with ID: ${workRequest.id}")
-        }
-    }
-
     fun requestContextualPermissions() {
         viewModelScope.launch {
              // Always go to permission screen if permission is not granted
