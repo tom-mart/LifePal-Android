@@ -141,7 +141,7 @@ class LifePalForegroundService : Service() {
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "healthDataSync",
-            ExistingPeriodicWorkPolicy.KEEP, // Keep existing to avoid restarting
+            ExistingPeriodicWorkPolicy.UPDATE,
             healthWorkRequest
         )
 
@@ -162,7 +162,7 @@ class LifePalForegroundService : Service() {
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "contextualDataSync",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             contextualWorkRequest
         )
 

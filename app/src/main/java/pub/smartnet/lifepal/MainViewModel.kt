@@ -242,11 +242,10 @@ class MainViewModel(
             _eventFlow.emit(UIEvent.ShowToast("Health data sync is active."))
 
             val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
             val workRequest = PeriodicWorkRequestBuilder<HealthDataWorker>(
-                repeatInterval = 21,
+                repeatInterval = 15,
                 repeatIntervalTimeUnit = TimeUnit.MINUTES,
                 flexTimeInterval = 5,
                 flexTimeIntervalUnit = TimeUnit.MINUTES
@@ -292,7 +291,6 @@ class MainViewModel(
             _eventFlow.emit(UIEvent.ShowToast("Contextual data sync enabled."))
             
             val constraints = Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
             
             val workRequest = PeriodicWorkRequestBuilder<ContextualDataWorker>(

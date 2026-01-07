@@ -22,7 +22,6 @@ class BootReceiver : BroadcastReceiver() {
 
     private fun scheduleHealthDataWorker(context: Context) {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val workRequest = PeriodicWorkRequestBuilder<HealthDataWorker>(
@@ -44,7 +43,6 @@ class BootReceiver : BroadcastReceiver() {
 
     private fun scheduleContextualDataWorker(context: Context) {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val workRequest = PeriodicWorkRequestBuilder<ContextualDataWorker>(
