@@ -186,7 +186,7 @@ class HealthConnectManager(private val context: Context) {
                 weight = androidx.health.connect.client.units.Mass.kilograms(weightKg),
                 time = timestamp,
                 zoneOffset = ZoneOffset.UTC,
-                metadata = Metadata(wasUserEntered = true)
+                metadata = Metadata.manualEntry()
             )
             healthConnectClient.insertRecords(listOf(weightRecord))
             Log.d("HealthConnectManager", "Successfully wrote weight: $weightKg kg at $timestamp")
@@ -213,8 +213,7 @@ class HealthConnectManager(private val context: Context) {
                 exerciseType = activityType,
                 title = title,
                 notes = notes,
-                metadata = Metadata(
-                    wasUserEntered = true,
+                metadata = Metadata.manualEntry(
                     device = Device(type = Device.TYPE_PHONE)
                 )
             )
