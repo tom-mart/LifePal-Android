@@ -2,10 +2,7 @@ package pub.smartnet.lifepal.data
 
 import android.app.AppOpsManager
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.usage.UsageStatsManager
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -20,8 +17,6 @@ import android.os.Process
 import android.provider.Settings
 import android.util.Log
 import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
-import java.util.concurrent.TimeUnit
 import java.time.Instant
 import kotlin.coroutines.resume
 
@@ -150,114 +145,70 @@ class ContextualDataManager(private val context: Context) {
     }
 
     suspend fun getEnvironmentalSensors(): Map<String, Any> = withContext(Dispatchers.IO) {
-        suspendCancellableCoroutine { continuation ->
-            val lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
-            val pressureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
-            
-            // Check if sensors are available
-            if (lightSensor == null && pressureSensor == null) {
-                Log.w("ContextualDataManager", "No environmental sensors available")
-                continuation.resume(mapOf(
-                    "timestamp" to Instant.now(),
-                    "ambient_light_lux" to 0.0f,
-                    "atmospheric_pressure_hpa" to 1013.25f,
-                    "altitude_meters" to 0.0f
-                ))
-                return@suspendCancellableCoroutine
-            }
-            
-            var lightValue: Float? = null
-            var pressureValue: Float? = null
-            var sensorTimestamp: Instant? = null
-            var hasResumed = false
-            val expectedSensors = listOfNotNull(lightSensor, pressureSensor).size
-            var receivedSensors = 0
-            
-            val listener = object : SensorEventListener {
-                override fun onSensorChanged(event: SensorEvent) {
-                    Log.d("ContextualDataManager", "Sensor changed: ${event.sensor.type}, value: ${event.values[0]}")
-                    when (event.sensor.type) {
-                        Sensor.TYPE_LIGHT -> {
-                            if (lightValue == null) {
-                                lightValue = event.values[0]
-                                sensorTimestamp = Instant.now()
-                                receivedSensors++
-                                Log.d("ContextualDataManager", "Light sensor: ${event.values[0]} lux")
-                            }
+        val lightSensor = sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
+        val pressureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE)
+
+        if (lightSensor == null && pressureSensor == null) {
+            Log.w("ContextualDataManager", "No environmental sensors available on device")
+            return@withContext mapOf(
+                "timestamp" to Instant.now(),
+                "ambient_light_lux" to 0.0f,
+                "atmospheric_pressure_hpa" to 1013.25f,
+                "altitude_meters" to 0.0f,
+                "sensor_available" to false
+            )
+        }
+
+        var lightValue: Float? = null
+        var pressureValue: Float? = null
+
+        val result = withTimeoutOrNull(30000) { // 30-second timeout
+            suspendCancellableCoroutine<Map<String, Any>> { continuation ->
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        Log.d("ContextualDataManager", "Sensor changed: ${event.sensor.type}, value: ${event.values[0]}")
+                        when (event.sensor.type) {
+                            Sensor.TYPE_LIGHT -> lightValue = event.values[0]
+                            Sensor.TYPE_PRESSURE -> pressureValue = event.values[0]
                         }
-                        Sensor.TYPE_PRESSURE -> {
-                            if (pressureValue == null) {
-                                pressureValue = event.values[0]
-                                if (sensorTimestamp == null) sensorTimestamp = Instant.now()
-                                receivedSensors++
-                                Log.d("ContextualDataManager", "Pressure sensor: ${event.values[0]} hPa")
+
+                        if ((lightSensor == null || lightValue != null) && (pressureSensor == null || pressureValue != null)) {
+                            sensorManager.unregisterListener(this)
+                            if (continuation.isActive) {
+                                val pressure = pressureValue ?: 1013.25f
+                                val altitude = SensorManager.getAltitude(SensorManager.PRESSURE_STANDARD_ATMOSPHERE, pressure)
+                                continuation.resume(mapOf(
+                                    "timestamp" to Instant.now(),
+                                    "ambient_light_lux" to (lightValue ?: 0.0f),
+                                    "atmospheric_pressure_hpa" to pressure,
+                                    "altitude_meters" to altitude,
+                                    "sensor_timeout" to false
+                                ))
                             }
                         }
                     }
-                    
-                    // Resume once we have all available sensor values
-                    if (receivedSensors >= expectedSensors && !hasResumed) {
-                        hasResumed = true
-                        sensorManager.unregisterListener(this)
-                        
-                        // Calculate altitude from pressure (standard atmosphere formula)
-                        val pressure = pressureValue ?: 1013.25f
-                        val altitude = SensorManager.getAltitude(SensorManager.PRESSURE_STANDARD_ATMOSPHERE, pressure)
-                        
-                        continuation.resume(mapOf(
-                            "timestamp" to (sensorTimestamp ?: Instant.now()),
-                            "ambient_light_lux" to (lightValue ?: 0.0f),
-                            "atmospheric_pressure_hpa" to pressure,
-                            "altitude_meters" to altitude
-                        ))
+
+                    override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
+                        Log.d("ContextualDataManager", "Sensor accuracy changed: ${sensor.type}, accuracy: $accuracy")
                     }
                 }
-                
-                override fun onAccuracyChanged(sensor: Sensor, accuracy: Int) {
-                    Log.d("ContextualDataManager", "Sensor accuracy changed: ${sensor.type}, accuracy: $accuracy")
-                }
-            }
-            
-            // Register listeners with FASTEST delay for quicker response
-            lightSensor?.let { 
-                val registered = sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_FASTEST)
-                Log.d("ContextualDataManager", "Light sensor registration: $registered")
-            } ?: run {
-                // If no light sensor, we already got one reading
-                receivedSensors++
-            }
-            
-            pressureSensor?.let { 
-                val registered = sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_FASTEST)
-                Log.d("ContextualDataManager", "Pressure sensor registration: $registered")
-            } ?: run {
-                // If no pressure sensor, we already got one reading
-                receivedSensors++
-            }
-            
-            // Timeout after 5 seconds (increased from 2s for background execution)
-            CoroutineScope(Dispatchers.Default).launch {
-                delay(5000)
-                if (!hasResumed) {
-                    hasResumed = true
+
+                continuation.invokeOnCancellation {
                     sensorManager.unregisterListener(listener)
-                    Log.w("ContextualDataManager", "Sensor timeout - light: $lightValue, pressure: $pressureValue")
-                    
-                    val pressure = pressureValue ?: 1013.25f
-                    val altitude = SensorManager.getAltitude(SensorManager.PRESSURE_STANDARD_ATMOSPHERE, pressure)
-                    
-                    continuation.resume(mapOf(
-                        "timestamp" to (sensorTimestamp ?: Instant.now()),
-                        "ambient_light_lux" to (lightValue ?: 0.0f),
-                        "atmospheric_pressure_hpa" to pressure,
-                        "altitude_meters" to altitude
-                    ))
                 }
-            }
-            
-            continuation.invokeOnCancellation {
-                sensorManager.unregisterListener(listener)
+
+                lightSensor?.let { sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL) }
+                pressureSensor?.let { sensorManager.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL) }
             }
         }
+
+        result ?: mapOf(
+            "timestamp" to Instant.now(),
+            "ambient_light_lux" to (lightValue ?: 0.0f),
+            "atmospheric_pressure_hpa" to (pressureValue ?: 1013.25f),
+            "altitude_meters" to SensorManager.getAltitude(SensorManager.PRESSURE_STANDARD_ATMOSPHERE, pressureValue ?: 1013.25f),
+            "sensor_timeout" to true,
+            "timeout_reason" to "both sensors unresponsive (no callbacks received)"
+        )
     }
 }

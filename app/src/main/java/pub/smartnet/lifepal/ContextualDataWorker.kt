@@ -3,8 +3,6 @@ package pub.smartnet.lifepal
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
-import androidx.work.OneTimeWorkRequest
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.google.android.gms.location.DetectedActivity
 import kotlinx.serialization.encodeToString
@@ -22,7 +20,6 @@ import pub.smartnet.lifepal.data.remote.ContextualMetricData
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.util.concurrent.TimeUnit
 
 class ContextualDataWorker(
     appContext: Context,
@@ -47,10 +44,19 @@ class ContextualDataWorker(
         return try {
             // Step 1: Try to send all queued data first
             sendQueuedData()
-            
-            // Step 2: Collect new data
-            val metrics = collectContextualData()
-            
+
+            // Step 2: Collect new data.
+            // We fetch sensor data first. If it times out, the getEnvironmentalSensors
+            // function will return a map with a timeout flag.
+            val environmentalSensors = contextualDataManager.getEnvironmentalSensors()
+            if (environmentalSensors["sensor_timeout"] == true) {
+                // Log the timeout, but continue the worker to collect other data.
+                // This makes our data collection more resilient.
+                Log.w("ContextualDataWorker", "Sensor timeout detected. Proceeding with other data.")
+            }
+
+            val metrics = collectContextualData(environmentalSensors)
+
             // Step 3: Save to database with timestamp
             if (metrics.isNotEmpty()) {
                 val payload = ContextualDataPayload(Instant.now().toString(), metrics)
@@ -63,15 +69,17 @@ class ContextualDataWorker(
                 )
                 Log.d("ContextualDataWorker", "Saved data to queue. Queue size: ${database.queuedDataDao().getContextualDataCount()}")
             }
-            
+
             // Step 4: Try to send queued data (including what we just saved)
             sendQueuedData()
 
+            // Always return success as we are queueing data. Network failures
+            // are handled by the queueing mechanism, not by failing the worker.
             Result.success()
         } catch (e: Exception) {
-            Log.e("ContextualDataWorker", "Work failed: ${e.message}", e)
-            // Don't retry - data is safely queued in database
-            Result.success()
+            Log.e("ContextualDataWorker", "Work failed unexpectedly: ${e.message}", e)
+            // If a true error occurs, we can return retry.
+            Result.retry()
         }
     }
     
@@ -106,62 +114,62 @@ class ContextualDataWorker(
         }
     }
     
-    private suspend fun collectContextualData(): List<ContextualMetric> {
+    private suspend fun collectContextualData(environmentalSensors: Map<String, Any>): List<ContextualMetric> {
         val metrics = mutableListOf<ContextualMetric>()
-        var foundData = false
 
-            // App Usage - from midnight to now (today only)
-            if (contextualDataManager.hasUsageStatsPermission()) {
-                val startOfToday = getStartOfToday()
-                val now = Instant.now()
-                val appUsageStats = contextualDataManager.getAppUsageStats(startOfToday.toEpochMilli(), now.toEpochMilli())
-                if (appUsageStats.isNotEmpty()) {
-                    foundData = true
-                    val totalTime = appUsageStats.values.sum()
-                    val usageList = appUsageStats.map { AppUsage(it.key, it.value / 1000) }
-                    metrics.add(ContextualMetric("APP_USAGE", now.toString(), ContextualMetricData(
-                        total_foreground_time_seconds = totalTime / 1000,
-                        usage = usageList
-                    )))
-                    syncTimeTracker.updateSyncTime("APP_USAGE")
-                    Log.d("ContextualDataWorker", "APP_USAGE: Found ${usageList.size} apps, total time: ${totalTime / 1000}s (today only)")
-                }
-            }
-
-            // Device State
-            val deviceState = contextualDataManager.getDeviceState()
-            metrics.add(ContextualMetric("DEVICE_STATE", (deviceState["timestamp"] as Instant).toString(), ContextualMetricData(
-                is_charging = deviceState["is_charging"] as Boolean,
-                battery_percent = deviceState["battery_percent"] as Int,
-                is_dnd_on = deviceState["is_dnd_on"] as Boolean,
-                is_headset_connected = deviceState["is_headset_connected"] as Boolean
-            )))
-            
-            // Screen Interaction Stats - from midnight to now (today only)
-            if (contextualDataManager.hasUsageStatsPermission()) {
-                val startOfToday = getStartOfToday()
-                val now2 = Instant.now()
-                val screenStats = contextualDataManager.getScreenInteractionStats(startOfToday.toEpochMilli(), now2.toEpochMilli())
-                metrics.add(ContextualMetric("SCREEN_INTERACTION", (screenStats["timestamp"] as Instant).toString(), ContextualMetricData(
-                    screen_unlocks = screenStats["screen_unlocks"] as Int,
-                    screen_time_seconds = screenStats["screen_time_seconds"] as Long
+        // App Usage - from midnight to now (today only)
+        if (contextualDataManager.hasUsageStatsPermission()) {
+            val startOfToday = getStartOfToday()
+            val now = Instant.now()
+            val appUsageStats = contextualDataManager.getAppUsageStats(startOfToday.toEpochMilli(), now.toEpochMilli())
+            if (appUsageStats.isNotEmpty()) {
+                val totalTime = appUsageStats.values.sum()
+                val usageList = appUsageStats.map { AppUsage(it.key, it.value / 1000) }
+                metrics.add(ContextualMetric("APP_USAGE", now.toString(), ContextualMetricData(
+                    total_foreground_time_seconds = totalTime / 1000,
+                    usage = usageList
                 )))
-                syncTimeTracker.updateSyncTime("SCREEN_INTERACTION")
-                Log.d("ContextualDataWorker", "SCREEN_INTERACTION: ${screenStats["screen_unlocks"]} unlocks, ${screenStats["screen_time_seconds"]}s screen time (today only)")
+                syncTimeTracker.updateSyncTime("APP_USAGE")
+                Log.d("ContextualDataWorker", "APP_USAGE: Found ${usageList.size} apps, total time: ${totalTime / 1000}s (today only)")
             }
-            
-            // Environmental Sensors
-            val sensors = contextualDataManager.getEnvironmentalSensors()
-            metrics.add(ContextualMetric("ENVIRONMENTAL", (sensors["timestamp"] as Instant).toString(), ContextualMetricData(
-                ambient_light_lux = sensors["ambient_light_lux"] as Float?,
-                atmospheric_pressure_hpa = sensors["atmospheric_pressure_hpa"] as Float?,
-                altitude_meters = sensors["altitude_meters"] as Float?
-            )))
-            syncTimeTracker.updateSyncTime("ENVIRONMENTAL")
-            Log.d("ContextualDataWorker", "ENVIRONMENTAL: light=${sensors["ambient_light_lux"]} lux, pressure=${sensors["atmospheric_pressure_hpa"]} hPa, altitude=${sensors["altitude_meters"]} m")
-
-            return metrics
         }
+
+        // Device State
+        val deviceState = contextualDataManager.getDeviceState()
+        metrics.add(ContextualMetric("DEVICE_STATE", (deviceState["timestamp"] as Instant).toString(), ContextualMetricData(
+            is_charging = deviceState["is_charging"] as Boolean,
+            battery_percent = deviceState["battery_percent"] as Int,
+            is_dnd_on = deviceState["is_dnd_on"] as Boolean,
+            is_headset_connected = deviceState["is_headset_connected"] as Boolean
+        )))
+        
+        // Screen Interaction Stats - from midnight to now (today only)
+        if (contextualDataManager.hasUsageStatsPermission()) {
+            val startOfToday = getStartOfToday()
+            val now2 = Instant.now()
+            val screenStats = contextualDataManager.getScreenInteractionStats(startOfToday.toEpochMilli(), now2.toEpochMilli())
+            metrics.add(ContextualMetric("SCREEN_INTERACTION", (screenStats["timestamp"] as Instant).toString(), ContextualMetricData(
+                screen_unlocks = screenStats["screen_unlocks"] as Int,
+                screen_time_seconds = screenStats["screen_time_seconds"] as Long
+            )))
+            syncTimeTracker.updateSyncTime("SCREEN_INTERACTION")
+            Log.d("ContextualDataWorker", "SCREEN_INTERACTION: ${screenStats["screen_unlocks"]} unlocks, ${screenStats["screen_time_seconds"]}s screen time (today only)")
+        }
+        
+        // Environmental Sensors
+        metrics.add(ContextualMetric("ENVIRONMENTAL", (environmentalSensors["timestamp"] as Instant).toString(), ContextualMetricData(
+            ambient_light_lux = environmentalSensors["ambient_light_lux"] as Float?,
+            atmospheric_pressure_hpa = environmentalSensors["atmospheric_pressure_hpa"] as Float?,
+            altitude_meters = environmentalSensors["altitude_meters"] as Float?,
+            sensor_timeout = environmentalSensors["sensor_timeout"] as Boolean?,
+            timeout_reason = environmentalSensors["timeout_reason"] as String?,
+            sensor_available = environmentalSensors["sensor_available"] as Boolean?
+        )))
+        syncTimeTracker.updateSyncTime("ENVIRONMENTAL")
+        Log.d("ContextualDataWorker", "ENVIRONMENTAL: light=${environmentalSensors["ambient_light_lux"]} lux, pressure=${environmentalSensors["atmospheric_pressure_hpa"]} hPa, altitude=${environmentalSensors["altitude_meters"]} m")
+
+        return metrics
+    }
 
     private fun Int.toActivityName(): String {
         return when (this) {

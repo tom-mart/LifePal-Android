@@ -130,7 +130,10 @@ data class ContextualMetricData(
     val confidence: Int? = null,
     val ambient_light_lux: Float? = null,
     val atmospheric_pressure_hpa: Float? = null,
-    val altitude_meters: Float? = null
+    val altitude_meters: Float? = null,
+    val sensor_timeout: Boolean? = null,
+    val timeout_reason: String? = null,
+    val sensor_available: Boolean? = null
 )
 
 @Serializable
@@ -193,14 +196,20 @@ class ApiClient(private val tokenManager: TokenManager) {
 
                 refreshTokens {
                     val refreshToken = tokenManager.getRefreshToken() ?: return@refreshTokens null
-                    val response: RefreshResponse = client.post("${requireServerAddress()}/api/token/refresh") {
+                    val response = client.post("${requireServerAddress()}/api/token/refresh") {
                         contentType(ContentType.Application.Json)
                         setBody(RefreshRequest(refreshToken))
                         markAsRefreshTokenRequest()
-                    }.body()
+                    }
 
-                    tokenManager.saveTokens(response.access, response.refresh)
-                    BearerTokens(response.access, response.refresh)
+                    if (response.status.isSuccess()) {
+                        val refreshResponse: RefreshResponse = response.body()
+                        tokenManager.saveTokens(refreshResponse.access, refreshResponse.refresh)
+                        BearerTokens(refreshResponse.access, refreshResponse.refresh)
+                    } else {
+                        tokenManager.clearSessionData()
+                        null
+                    }
                 }
             }
         }

@@ -29,6 +29,7 @@ class HealthConnectManager(private val context: Context) {
         HealthPermission.getReadPermission(StepsRecord::class),
         HealthPermission.getReadPermission(SleepSessionRecord::class),
         HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+
         HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(DistanceRecord::class),
         HealthPermission.getReadPermission(WeightRecord::class),
@@ -125,7 +126,11 @@ class HealthConnectManager(private val context: Context) {
             Log.d("HealthConnectManager", "Route result type: ${routeResult?.javaClass?.simpleName ?: "NULL"}")
             
             // The route is embedded in the session record's exerciseRouteResult property
-            // Health Connect SDK automatically includes it when reading ExerciseSessionRecord
+            // For routes from other apps (Samsung Health), the result might be ConsentRequired or NoData
+            // NoData can mean: 1) No route exists, 2) Permission not granted, 3) Route not synced from source app
+            Log.d("HealthConnectManager", "Route result raw class: ${routeResult?.javaClass?.name ?: "NULL"}")
+            Log.d("HealthConnectManager", "Route result toString: ${routeResult?.toString() ?: "NULL"}")
+            
             val route = when (routeResult) {
                 is ExerciseRouteResult.Data -> {
                     val routePoints = routeResult.exerciseRoute.route.size
@@ -133,15 +138,19 @@ class HealthConnectManager(private val context: Context) {
                     routeResult.exerciseRoute
                 }
                 is ExerciseRouteResult.ConsentRequired -> {
-                    Log.w("HealthConnectManager", "⚠ GPS route consent required for session ${session.metadata.id}")
-                    null // User needs to grant consent via ExerciseRouteRequestContract
+                    Log.w("HealthConnectManager", "⚠ GPS route CONSENT REQUIRED for session ${session.metadata.id} from ${session.metadata.dataOrigin.packageName}")
+                    Log.w("HealthConnectManager", "   This route exists but needs user consent via ExerciseRouteRequestContract")
+                    null // User needs to grant consent via ExerciseRouteRequestContract in UI
                 }
                 is ExerciseRouteResult.NoData -> {
-                    Log.d("HealthConnectManager", "✗ Session has no GPS data in Health Connect database (NoData)")
+                    Log.d("HealthConnectManager", "✗ Session has NoData for route - possible reasons:")
+                    Log.d("HealthConnectManager", "   1. Samsung Health didn't sync GPS route to Health Connect")
+                    Log.d("HealthConnectManager", "   2. Exercise was recorded without GPS tracking")
+                    Log.d("HealthConnectManager", "   3. READ_EXERCISE_ROUTES permission not granted by user")
                     null
                 }
                 null -> {
-                    Log.w("HealthConnectManager", "? Route result is null (not NoData, literally null)")
+                    Log.w("HealthConnectManager", "? Route result is null (SDK version issue or not available)")
                     null
                 }
                 else -> {

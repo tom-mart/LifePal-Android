@@ -11,6 +11,7 @@ import androidx.work.*
 import com.google.firebase.messaging.FirebaseMessaging
 import io.ktor.client.plugins.*
 import io.ktor.http.*
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -25,7 +26,8 @@ class MainViewModel(
     private val context: Context,
     val healthConnectManager: HealthConnectManager,
     val contextualDataManager: ContextualDataManager,
-    private val tokenManager: TokenManager
+    private val tokenManager: TokenManager,
+    private val applicationScope: CoroutineScope
 ) : ViewModel() {
 
     private val apiClient = ApiClient(tokenManager)
@@ -108,6 +110,7 @@ class MainViewModel(
                 tokenManager.saveTokens(response.access, response.refresh)
                 tokenManager.saveUsername(response.username)
                 _username.value = response.username
+                _lastServerAddress.value = serverAddress
 
                 loadAgents()
                 registerDevice()
@@ -132,12 +135,7 @@ class MainViewModel(
     }
 
     private suspend fun loadAgents() {
-        try {
-            _agents.value = apiClient.getAgents()
-        } catch (e: Exception) {
-            handleApiError(e, "Failed to load agents")
-            throw e // Re-throw to be caught by checkAuth
-        }
+        _agents.value = apiClient.getAgents()
     }
 
     fun sendMessage() {
@@ -147,7 +145,7 @@ class MainViewModel(
         _messages.value = _messages.value + ChatMessage(message, "user") + ChatMessage("", "bot", true)
         userInput.value = ""
 
-        viewModelScope.launch {
+        applicationScope.launch {
             try {
                 val request = StreamRequest(
                     message = message,
@@ -280,12 +278,14 @@ class MainViewModel(
 class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
+            val application = context.applicationContext as LifePalApplication
             @Suppress("UNCHECKED_CAST")
             return MainViewModel(
                 context,
                 HealthConnectManager(context),
                 ContextualDataManager(context),
-                TokenManager(context)
+                TokenManager(context),
+                application.applicationScope
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

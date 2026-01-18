@@ -17,6 +17,13 @@ val localProperties = Properties().apply {
     }
 }
 
+val keystoreProperties = Properties().apply {
+    val keystorePropertiesFile = rootProject.file("keystore.properties")
+    if (keystorePropertiesFile.exists()) {
+        load(FileInputStream(keystorePropertiesFile))
+    }
+}
+
 android {
     namespace = "pub.smartnet.lifepal"
     compileSdk {
@@ -25,10 +32,12 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("my-release-key.jks")
-            storePassword = localProperties.getProperty("MY_KEYSTORE_PASSWORD")
-            keyAlias = "my-key-alias"
-            keyPassword = localProperties.getProperty("MY_KEY_ALIAS_PASSWORD")
+            if (keystoreProperties.getProperty("storeFile") != null) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
         }
     }
 
