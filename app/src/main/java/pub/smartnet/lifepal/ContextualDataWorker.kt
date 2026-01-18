@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.google.android.gms.location.DetectedActivity
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import pub.smartnet.lifepal.data.ContextualDataManager
@@ -114,7 +113,7 @@ class ContextualDataWorker(
         }
     }
     
-    private suspend fun collectContextualData(environmentalSensors: Map<String, Any>): List<ContextualMetric> {
+    private fun collectContextualData(environmentalSensors: Map<String, Any>): List<ContextualMetric> {
         val metrics = mutableListOf<ContextualMetric>()
 
         // App Usage - from midnight to now (today only)
@@ -169,17 +168,5 @@ class ContextualDataWorker(
         Log.d("ContextualDataWorker", "ENVIRONMENTAL: light=${environmentalSensors["ambient_light_lux"]} lux, pressure=${environmentalSensors["atmospheric_pressure_hpa"]} hPa, altitude=${environmentalSensors["altitude_meters"]} m")
 
         return metrics
-    }
-
-    private fun Int.toActivityName(): String {
-        return when (this) {
-            DetectedActivity.IN_VEHICLE -> "IN_VEHICLE"
-            DetectedActivity.ON_BICYCLE -> "ON_BICYCLE"
-            DetectedActivity.ON_FOOT -> "ON_FOOT"
-            DetectedActivity.STILL -> "STILL"
-            DetectedActivity.WALKING -> "WALKING"
-            DetectedActivity.RUNNING -> "RUNNING"
-            else -> "UNKNOWN"
-        }
     }
 }

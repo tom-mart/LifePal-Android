@@ -5,8 +5,8 @@ import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.*
-import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.records.metadata.Device
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.Instant
@@ -121,40 +121,22 @@ class HealthConnectManager(private val context: Context) {
             Log.d("HealthConnectManager", "Session start: ${session.startTime}, end: ${session.endTime}")
             Log.d("HealthConnectManager", "Session data origin: ${session.metadata.dataOrigin.packageName}")
             
-            // Debug: Check the actual type of exerciseRouteResult
-            val routeResult = session.exerciseRouteResult
-            Log.d("HealthConnectManager", "Route result type: ${routeResult?.javaClass?.simpleName ?: "NULL"}")
-            
-            // The route is embedded in the session record's exerciseRouteResult property
-            // For routes from other apps (Samsung Health), the result might be ConsentRequired or NoData
-            // NoData can mean: 1) No route exists, 2) Permission not granted, 3) Route not synced from source app
-            Log.d("HealthConnectManager", "Route result raw class: ${routeResult?.javaClass?.name ?: "NULL"}")
-            Log.d("HealthConnectManager", "Route result toString: ${routeResult?.toString() ?: "NULL"}")
-            
-            val route = when (routeResult) {
+            val route = when (val result = session.exerciseRouteResult) {
                 is ExerciseRouteResult.Data -> {
-                    val routePoints = routeResult.exerciseRoute.route.size
+                    val routePoints = result.exerciseRoute.route.size
                     Log.d("HealthConnectManager", "✓ Session has GPS route with $routePoints points")
-                    routeResult.exerciseRoute
+                    result.exerciseRoute
                 }
                 is ExerciseRouteResult.ConsentRequired -> {
                     Log.w("HealthConnectManager", "⚠ GPS route CONSENT REQUIRED for session ${session.metadata.id} from ${session.metadata.dataOrigin.packageName}")
-                    Log.w("HealthConnectManager", "   This route exists but needs user consent via ExerciseRouteRequestContract")
-                    null // User needs to grant consent via ExerciseRouteRequestContract in UI
-                }
-                is ExerciseRouteResult.NoData -> {
-                    Log.d("HealthConnectManager", "✗ Session has NoData for route - possible reasons:")
-                    Log.d("HealthConnectManager", "   1. Samsung Health didn't sync GPS route to Health Connect")
-                    Log.d("HealthConnectManager", "   2. Exercise was recorded without GPS tracking")
-                    Log.d("HealthConnectManager", "   3. READ_EXERCISE_ROUTES permission not granted by user")
                     null
                 }
-                null -> {
-                    Log.w("HealthConnectManager", "? Route result is null (SDK version issue or not available)")
+                is ExerciseRouteResult.NoData -> {
+                    Log.d("HealthConnectManager", "✗ Session has NoData for route")
                     null
                 }
                 else -> {
-                    Log.w("HealthConnectManager", "? Unknown route result type: ${routeResult?.javaClass?.simpleName}")
+                    Log.w("HealthConnectManager", "? Unknown or null route result")
                     null
                 }
             }
@@ -196,24 +178,6 @@ class HealthConnectManager(private val context: Context) {
             )
         ).records
     }
-
-    suspend fun readWorkoutsWithGps(startTime: Instant, endTime: Instant) {
-        val response = healthConnectClient.readRecords(
-            ReadRecordsRequest(
-                recordType = ExerciseSessionRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
-            )
-        )
-
-        for (session in response.records) {
-            val routeResult = session.exerciseRouteResult
-            if (routeResult is ExerciseRouteResult.Data) {
-                val route = routeResult.exerciseRoute
-                // route.route contains the List of ExerciseRoute.Location
-                Log.d("GPS", "Found route with ${route.route.size} points")
-            }
-        }
-    }
     
     // Write methods for backend-triggered data
     suspend fun writeWeight(weightKg: Double, timestamp: Instant): Boolean {
@@ -222,7 +186,7 @@ class HealthConnectManager(private val context: Context) {
                 weight = androidx.health.connect.client.units.Mass.kilograms(weightKg),
                 time = timestamp,
                 zoneOffset = ZoneOffset.UTC,
-                metadata = Metadata.manualEntry()
+                metadata = Metadata(wasUserEntered = true)
             )
             healthConnectClient.insertRecords(listOf(weightRecord))
             Log.d("HealthConnectManager", "Successfully wrote weight: $weightKg kg at $timestamp")
@@ -249,7 +213,8 @@ class HealthConnectManager(private val context: Context) {
                 exerciseType = activityType,
                 title = title,
                 notes = notes,
-                metadata = Metadata.manualEntry(
+                metadata = Metadata(
+                    wasUserEntered = true,
                     device = Device(type = Device.TYPE_PHONE)
                 )
             )

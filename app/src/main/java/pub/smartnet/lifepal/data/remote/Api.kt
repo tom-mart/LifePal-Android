@@ -35,9 +35,6 @@ data class RefreshRequest(val refresh: String)
 data class RefreshResponse(val refresh: String, val access: String)
 
 @Serializable
-data class VerifyRequest(val token: String)
-
-@Serializable
 data class DeviceTokenRequest(val token: String)
 
 // Chat
@@ -228,7 +225,7 @@ class ApiClient(private val tokenManager: TokenManager) {
                 contentType(ContentType.Application.Json)
                 setBody(DeviceTokenRequest(token))
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Ignore for now, or log it
         }
     }
@@ -248,9 +245,9 @@ class ApiClient(private val tokenManager: TokenManager) {
                 if (line.startsWith("data: ")) {
                     val jsonStr = line.removePrefix("data: ")
                     try {
-                        val data = json.decodeFromString<StreamData>(jsonStr)
-                        emit(data)
-                    } catch (e: Exception) {
+                        json.decodeFromString<StreamData>(jsonStr)
+                        emit(json.decodeFromString<StreamData>(jsonStr))
+                    } catch (_: Exception) {
                         // ignore parse errors
                     }
                 }

@@ -10,9 +10,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.BatteryManager
-import android.os.Build
 import android.os.Process
 import android.provider.Settings
 import android.util.Log
@@ -38,13 +38,13 @@ class ContextualDataManager(private val context: Context) {
         return Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
     }
 
-    suspend fun getAppUsageStats(startTime: Long, endTime: Long): Map<String, Long> {
+    fun getAppUsageStats(startTime: Long, endTime: Long): Map<String, Long> {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
         return stats.associate { it.packageName to it.totalTimeInForeground }
     }
 
-    suspend fun getDeviceState(): Map<String, Any> {
+    fun getDeviceState(): Map<String, Any> {
         val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val batteryStatus = context.registerReceiver(null, intentFilter)
         val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
@@ -59,36 +59,22 @@ class ContextualDataManager(private val context: Context) {
 
         // DND Detection
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val isDndOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val filter = notificationManager.currentInterruptionFilter
-            filter != NotificationManager.INTERRUPTION_FILTER_ALL
-        } else {
-            false
-        }
+        val isDndOn = notificationManager.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL
+
 
         // Headset Detection (wired + Bluetooth)
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val isWiredHeadsetOn = audioManager.isWiredHeadsetOn
-        
-        // Bluetooth detection - works on all Android versions
-        val isBluetoothOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+: Check audio devices
-            val devices = audioManager.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
-            devices.any { device ->
-                device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-                device.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                device.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                device.type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER
-            }
-        } else {
-            // Android 11 and below
-            @Suppress("DEPRECATION")
-            audioManager.isBluetoothA2dpOn || audioManager.isBluetoothScoOn
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val isHeadsetConnected = devices.any { device ->
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+            device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
+            device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+            device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
         }
         
-        val isHeadsetConnected = isWiredHeadsetOn || isBluetoothOn
-        
-        Log.d("ContextualDataManager", "Headset: wired=$isWiredHeadsetOn, bluetooth=$isBluetoothOn, connected=$isHeadsetConnected")
+        Log.d("ContextualDataManager", "Headset connected: $isHeadsetConnected")
 
         return mapOf(
             "timestamp" to Instant.now(),
@@ -99,7 +85,7 @@ class ContextualDataManager(private val context: Context) {
         )
     }
 
-    suspend fun getScreenInteractionStats(startTime: Long, endTime: Long): Map<String, Any> {
+    fun getScreenInteractionStats(startTime: Long, endTime: Long): Map<String, Any> {
         if (!hasUsageStatsPermission()) {
             return mapOf(
                 "screen_unlocks" to 0,

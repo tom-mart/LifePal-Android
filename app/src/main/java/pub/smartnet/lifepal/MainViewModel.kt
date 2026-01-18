@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import pub.smartnet.lifepal.data.*
 import pub.smartnet.lifepal.data.remote.*
-import java.util.concurrent.TimeUnit
 
 @Suppress("StaticFieldLeak") // Context is application context, not activity
 class MainViewModel(
